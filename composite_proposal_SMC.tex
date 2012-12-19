@@ -1,0 +1,65 @@
+\documentclass{article}
+
+\usepackage[pdftex]{graphicx}
+\usepackage[caption=false,font=footnotesize]{subfig}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{IEEEtrantools}
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage{harvard}
+
+\usepackage{color}
+
+\graphicspath{{./}}
+
+\newenvironment{meta}[0]{\color{red} \em}{}
+
+\title{Composite Proposals for SMC Samplers}
+\author{Pete Bunch}
+\date{December 2012}
+
+\begin{document}
+
+\maketitle
+
+\section{The Situation}
+
+Consider a particle filter for estimating $p(x_{1:t} | y_{1:t})$. Let say that the transition density, $p(x_t | x_{t-1})$, is easily sampled and the likelihood, $p(y_t | x_t)$, can be evaluated, but that this is expensive. The optimal proposal density is $p(x_t | x_{1:t-1}, y_t)$. In our example, this cannot be sampled from, nor easily approximated, and is multimodal.
+
+If we simply use the transition density as the importance density (i.e. a bootstrap filter) then we will need many particles to get a good approximation.
+
+
+
+\section{Using a Markov Chain}
+
+We could use MCMC to draw a sample from the optimal importance density. We start by sampling from the transition density, then propose a perturbation to this state and accept or reject it in the usual way, targeting the OID. Continue until the chain has converged. The advantage of such a scheme over simply using loads more particles in the PF is if the transition density and likelihood have a poor overlap. The Markov chain can move the particle to the likelihood peak.
+
+This idea has two drawbacks. Firstly, we need to wait for the chain to converge, and we don't know how long that will be. Secondly, the resulting weight will include a $p(y_t | x_{t-1})$ term, which is intractable.
+
+
+
+\section{Using a Markov Chain in an SMC Sampler}
+
+The solution to these problems is to use an SMC sampler which targets the extended distribution over all the intermediate variables used in the Markov Chain (in a similar manner to a PMCMC scheme).
+
+For example, for a length-1 chain, the proposal is,
+%
+\begin{IEEEeqnarray}{rCl}
+ p(x_{1:t-1} | y_{1:t-1})  K_1(x_t^{(1)} | x_{t-1}, y_t)  K_2(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t)     ,
+\end{IEEEeqnarray}
+%
+where $K_1(x_t^{(1)} | x_{t-1}, y_t)$ is any valid PF proposal density (e.g. the transition density), and
+%
+\begin{IEEEeqnarray}{rCl}
+K_2(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t) & = & \alpha^{(2)} q(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t) + (1-\alpha^{(2)}) \delta_{x_t^{(1)}}(x_t^{(2)}) \\
+\alpha^{(2)} & = & \frac{ p(y_t | x_t^{(2)}) p(x_t^{(2)} | x_{t-1}) q(x_t^{(1)} | x_t^{(2)}, x_{t-1}, y_t) }{ p(y_t | x_t^{(1)}) p(x_t^{(1)} | x_{t-1}) q(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t)  }     ,
+\end{IEEEeqnarray}
+%
+which is the density sampled by MH.
+
+
+\end{document}
