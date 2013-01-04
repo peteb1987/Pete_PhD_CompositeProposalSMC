@@ -34,11 +34,19 @@ If we simply use the transition density as the importance density (i.e. a bootst
 
 
 
-\section{Using a Markov Chain}
+\section{Proposals with a Markov Chain}
 
-We could use MCMC to draw a sample from the optimal importance density. We start by sampling from the transition density, then propose a perturbation to this state and accept or reject it in the usual way, targeting the OID. Continue until the chain has converged. The advantage of such a scheme over simply using loads more particles in the PF is if the transition density and likelihood have a poor overlap. The Markov chain can move the particle to the likelihood peak.
+We could use MCMC to draw a sample from the optimal importance density. We start by sampling from the transition density, then propose a perturbation to this state and accept or reject it in the usual way, targeting the OID. Continue until the chain has converged. Such a scheme is advantageous over simply using loads more particles in the PF is if the transition density and likelihood have a poor overlap. The Markov chain can move the particle towards the likelihood peak.
 
 This idea has two drawbacks. Firstly, we need to wait for the chain to converge, and we don't know how long that will be. Secondly, the resulting weight will include a $p(y_t | x_{t-1})$ term, which is intractable.
+
+
+
+\section{Resample-Move}
+
+Another way to improve our particle filter using MCMC is the Resample-Move algorithm. In RM, we run the bootstrap filter as usual, then (after resampling) we perturb the particles using a Metropolis-Hastings kernel. Because this has the target density as its invariant distribution, the weights are not affected by this operation.
+
+The downside to RM is that the weights do not reflect the posterior probability of where the particles end up. Say our initial particle set misses a narrow peak in the likelihood, but the MH steps move some of the resampled particles onto this peak. The (now highly likely) particles will have the same weight as the rest, and there may still be only a few of them. Thus, the particle set does not reflect the posterior distribution well.
 
 
 
@@ -46,20 +54,84 @@ This idea has two drawbacks. Firstly, we need to wait for the chain to converge,
 
 The solution to these problems is to use an SMC sampler which targets the extended distribution over all the intermediate variables used in the Markov Chain (in a similar manner to a PMCMC scheme).
 
-For example, for a length-1 chain, the proposal is,
+The proposal density for such an extended state is,
 %
-\begin{IEEEeqnarray}{rCl}
- p(x_{1:t-1} | y_{1:t-1})  K_1(x_t^{(1)} | x_{t-1}, y_t)  K_2(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t)     ,
+\begin{IEEEeqnarray}{c}
+ p(x_{1:t-1} | y_{1:t-1}) q(x_{t}^{(0)}) \prod_{m=1}^{M} \left[ q(x_{t}^{*(m)} | x_{t}^{(m-1)}) \mathcal{A}(x_{t}^{(m)} | x_{t}^{(m-1)}, x_{t}^{*(m)}) \right]     ,
 \end{IEEEeqnarray}
 %
-where $K_1(x_t^{(1)} | x_{t-1}, y_t)$ is any valid PF proposal density (e.g. the transition density), and
+where the chain is $M$ steps long, and the ``acceptance density'' is given by,
 %
 \begin{IEEEeqnarray}{rCl}
-K_2(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t) & = & \alpha^{(2)} q(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t) + (1-\alpha^{(2)}) \delta_{x_t^{(1)}}(x_t^{(2)}) \\
-\alpha^{(2)} & = & \frac{ p(y_t | x_t^{(2)}) p(x_t^{(2)} | x_{t-1}) q(x_t^{(1)} | x_t^{(2)}, x_{t-1}, y_t) }{ p(y_t | x_t^{(1)}) p(x_t^{(1)} | x_{t-1}) q(x_t^{(2)} | x_t^{(1)}, x_{t-1}, y_t)  }     ,
+ \mathcal{A}(x_{t}^{(m)} | x_{t}^{(m-1)}, x_{t}^{*(m)}) & = & \alpha(x_{t}^{(m-1)}, x_{t}^{*(m)}) \delta_{x_{t}^{*(m)}}(x_{t}^{(m)}) + (1 - \alpha(x_{t}^{(m-1)}, x_{t}^{*(m)})) \delta_{x_{t}^{(m-1)}}(x_{t}^{(m)})     ,
 \end{IEEEeqnarray}
 %
-which is the density sampled by MH.
+with acceptance probability, 
+\begin{IEEEeqnarray}{rCl}
+ \alpha(x_{t}^{(m-1)}, x_{t}^{*(m)})) & = & \min\left[1, \frac{ p(y_t | x_{t}^{*(m)}) p(x_{t}^{*(m)} | x_{t-1}) q(x_{t}^{(m-1)} | x_{t}^{*(m)}) }{ p(y_t | x_{t}^{(m-1)}) p(x_{t}^{(m-1)} | x_{t-1}) q(x_{t}^{*(m)} | x_{t}^{(m-1)}) } \right]    .
+\end{IEEEeqnarray}
+%
+Note that all proposal densities, $q$, can also be conditioned on the observation, $y_t$, but this is supressed for clarity.
 
+We must correspondingly augment the target density, which becomes,
+%
+\begin{IEEEeqnarray}{c}
+ p(x_{1:t-1}, x_{t}^{(M)} | y_{1:t}) \rho(x_{t}^{(0:M-1)}, x_{t}^{*(1:M)})     .
+\end{IEEEeqnarray}
+
+The simplest choice for the artificial conditional is such that it cancels out as many factors as possible from the proposal,
+%
+\begin{IEEEeqnarray}{rCl}
+ \rho(x_{t}^{(0:M-1)}, x_{t}^{*(1:M)}) & = & q(x_{t}^{(0)}) \prod_{m=1}^{M-1} \left[ q(x_{t}^{*(m)} | x_{t}^{(m-1)}) \mathcal{A}(x_{t}^{(m)} | x_{t}^{(m-1)}, x_{t}^{*(m)}) \right] q(x_{t}^{*(M)} | x_{t}^{(M-1)})     .
+\end{IEEEeqnarray}
+%
+This leaves the weight as,
+%
+\begin{IEEEeqnarray}{rCl}
+ w_t & \propto & \frac{ p(y_{t} | x_{t}^{(M)}) p(x_{t}^{(M)} | x_{t-1}) }{ \mathcal{A}(x_{t}^{(M)} | x_{t}^{(M-1)}, x_{t}^{*(M)}) }     .
+\end{IEEEeqnarray}
+%
+This is a bit dubious, as it leaves a delta function on the denominator of the weight expression. While this might cancel out in the normalisation (something which Simon thinks is fine), it makes me uneasy. Furthermore, this ``aesthetic'' choice of artificial conditional is specifically advised against in \cite{DelMoral2006}.
+
+Here's a possible improvement.
+%
+\begin{IEEEeqnarray}{rCl}
+ \rho(x_{t}^{(0:M-1)}, x_{t}^{*(1:M)}) & = & \prod_{m=1}^{M} \left[ \beta q(x_{t}^{(m-1)} | x_{t}^{(m)}) \delta_{x_{t}^{(m)}}(x_{t}^{*(m)}) + (1-\beta) \delta_{x_{t}^{(m)}}(x_{t}^{(m-1)}) q(x_{t}^{*(m)} | x_{t}^{(m-1)}) \right]
+\end{IEEEeqnarray}
+%
+The corresponding weight expression looks like this,
+%
+\begin{IEEEeqnarray}{rCl}
+ w_t & \propto & \frac{ p(y_{t} | x_{t}^{(M)}) p(x_{t}^{(M)} | x_{t-1}) }{ q(x_{t}^{(0)}) } \nonumber \\
+     &         & \times \prod_{m=1}^{M} \left[ \frac{ \beta q(x_{t}^{(m-1)} | x_{t}^{*(m)}) }{ \alpha(x_{t}^{(m-1)}, x_{t}^{*(m)})) q(x_{t}^{*(m)} | x_{t}^{(m-1)}) } \mathbb{I}\left(x_{t}^{(m)}=x_{t}^{*(m)}\right) + \frac{ (1-\beta) }{ (1-\alpha(x_{t}^{(m-1)}, x_{t}^{*(m)}))) } \mathbb{I}\left(x_{t}^{(m)}=x_{t}^{(m-1)}\right) \right]     .
+\end{IEEEeqnarray}
+%
+If $q$ is symmetric, i.e. $q(x^{(1)}|x^{(2)})=q(x^{(2)}|x^{(1)})$, then this simplifies further to,
+%
+\begin{IEEEeqnarray}{rCl}
+ w_t & \propto & \frac{ p(y_{t} | x_{t}^{(M)}) p(x_{t}^{(M)} | x_{t-1}) }{ q(x_{t}^{(0)}) } \nonumber \\
+     &         & \times \prod_{m=1}^{M} \left[ \frac{ \beta }{ \alpha(x_{t}^{(m-1)}, x_{t}^{*(m)})) } \mathbb{I}\left(x_{t}^{(m)}=x_{t}^{*(m)}\right) + \frac{ (1-\beta) }{ (1-\alpha(x_{t}^{(m-1)}, x_{t}^{*(m)}))) } \mathbb{I}\left(x_{t}^{(m)}=x_{t}^{(m-1)}\right) \right]     .
+\end{IEEEeqnarray}
+%
+So... the weight depends directly on the posterior probability of the final state, $x_{t}^{(M)}$, which is desirable. It also depends on the initially proposed state, $x_{t}^{(0)}$. The acceptance of a MH move which increases the posterior probability does not alter the weight (because $\alpha=1$), but every time a move is proposed and rejected, or an unlikely move is accepted, then this boosts the weight.
+
+I think we could also set $\beta=\alpha$, in which case the weights become simply,
+%
+\begin{IEEEeqnarray}{rCl}
+ w_t & \propto & \frac{ p(y_{t} | x_{t}^{(M)}) p(x_{t}^{(M)} | x_{t-1}) }{ q(x_{t}^{(0)}) }      .
+\end{IEEEeqnarray}
+%
+I don't think this is necessarily an improvement.
+
+
+
+\section{To Do}
+
+It would be nice to derive the optimal form for the extended target distribution. Then try these out, comparing to simple RM. Comparison could be done by eyeballing the particle set after resampling.
+
+
+
+\bibliographystyle{agsm}
+\bibliography{/home/pete/Dropbox/PhD/OTbib.bib}
 
 \end{document}
